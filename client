@@ -1,0 +1,120 @@
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <errno.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <netdb.h>
+#include <string.h>
+
+/* codul de eroare returnat de anumite apeluri */
+extern int errno;
+
+/* portul de conectare la server*/
+int port;
+int inet_addr(char argv[]);
+
+int main(int argc, char *argv[])
+{
+  int sd;                    // descriptorul de socket
+  struct sockaddr_in server; // structura folosita pentru conectare
+  char msg[100];             // mesajul trimis
+  int ok = 1;                // clientul poate juca
+  char nr;                   // numarul jucatorului curent
+  int first_round;           // daca este prima runda
+  /* exista toate argumentele in linia de comanda? */
+  if (argc != 3)
+  {
+    printf("[client] Sintaxa: %s <adresa_server> <port>\n", argv[0]);
+    return -1;
+  }
+
+  /* stabilim portul */
+  port = atoi(argv[2]);
+
+  /* cream socketul */
+  if ((sd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+  {
+    perror("Eroare la socket().\n");
+    return errno;
+  }
+
+  /* umplem structura folosita pentru realizarea conexiunii cu serverul */
+  /* familia socket-ului */
+  server.sin_family = AF_INET;
+  /* adresa IP a serverului */
+  server.sin_addr.s_addr = inet_addr(argv[1]);
+  /* portul de conectare */
+  server.sin_port = htons(port);
+
+  /* ne conectam la server */
+  if (connect(sd, (struct sockaddr *)&server, sizeof(struct sockaddr)) == -1)
+  {
+    perror("Eroare la connect().\n");
+    return errno;
+  }
+  if (read(sd, msg, 1000) < 0)
+  {
+    perror("Eroare la read() de la server.\n");
+    return errno;
+  }
+  if (strstr(msg, "numarul maxim de jucatori")) /*s-a atins numarul maxim de jucatori, deci clientul nu poate juca*/
+  {
+    printf("%s", msg);
+    ok = 0;
+  }
+  else
+  {
+    nr = msg[13]; /* se citeste numarul jucatorului din mesajul transmis de catre server*/
+  }
+  first_round = 1; /* este prima runda */
+  while (ok)
+  {
+    if (strcmp(msg, "exit\n") == 0) /* daca primeste mesaj de la server cu exit, clientul se deconecteaza */
+    {
+      ok = 0;
+      break;
+    }
+    if (strcmp(msg, "Felicitari!Ai castigat!\n") == 0) /* daca jucatorul a castigat, se deconecteaza */
+    {
+      ok = 0;
+      break;
+    }
+    if (strcmp(msg, "Cuvant gresit\n") != 0) /* daca jucatorul nu a introdus un cuvant gresit, poate transmite in continuare un cuvant */
+    {                                        /* citirea mesajului */
+      bzero(msg, 100);
+      printf("Jucator %c ", nr);
+      if (first_round == 1 && nr == 49) /* daca este prima runda , primul jucator transmite o litera */
+      {
+        printf("trimite o litera: \n");
+      }
+      else
+        printf("trimite un cuvant: \n");
+
+      fflush(stdout);
+      read(0, msg, 100);
+
+      /* trimiterea mesajului la server */
+      if (write(sd, msg, 100) <= 0)
+      {
+        perror("Eroare la write() spre server.\n");
+        return errno;
+      }
+    }
+
+    /* citirea raspunsului dat de server 
+      (apel blocant pina cind serverul raspunde) */
+    if (read(sd, msg, 100) < 0)
+    {
+      perror("Eroare la read() de la server.\n");
+      return errno;
+    }
+
+    /* afisam mesajul primit */
+    printf("%s", msg);
+    if (strcmp(msg, "Litera este valida\n") == 0) /* daca litera transmisa in prima runda a fost valida, se trece la runda urmatoare */
+      first_round = 0;
+  }
+  close(sd);
+}
